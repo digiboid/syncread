@@ -45,7 +45,8 @@ impl MpvController {
         // Essential IPC setup
         cmd.arg(format!("--input-ipc-server={}", socket_path.display()))
            .arg("--idle=yes")
-           .arg("--force-window=yes");
+           .arg("--force-window=yes")
+           .arg("--pause=yes"); // Start paused
         
         // Add keybind config if provided
         if let Some(config_path) = keybind_config {
