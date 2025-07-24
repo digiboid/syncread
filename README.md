@@ -19,14 +19,22 @@ syncread server --bind 0.0.0.0:8080
 syncread client --server ip:8080 --minimal --user-id username path/to/folder
 ```
 
+### Custom MPV Path
+If MPV is not in your PATH, you can specify the binary location:
+```bash
+# Windows example
+syncread client --server ip:8080 --mpv-path "C:\Program Files\MPV\mpv.exe" --user-id username path/to/folder
+
+# Linux example  
+syncread client --server ip:8080 --mpv-path /opt/mpv/bin/mpv --user-id username path/to/folder
+```
+
 # Features
 
 ## Known Issues
 - When switching pages quickly, syncread may temporarily report being on the first page
 - Flickering on windows terminal
 
-# Known feature requests
-- allow to point to mpv binary manually
 
 ## Building from Source
 ```bash
