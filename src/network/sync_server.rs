@@ -116,14 +116,18 @@ impl SyncServer {
                         // Update session state
                         match &message.event {
                             SyncEvent::UserJoined { user_id: uid, user_state } => {
+                                debug!("Processing UserJoined for: {}", uid);
                                 user_id = Some(uid.clone());
                                 clients_clone.write().await.insert(uid.clone(), client_tx.clone());
                                 session_state_clone.write().await.update_user(user_state.clone());
                             }
                             SyncEvent::StateUpdate { user_state } => {
+                                debug!("Processing StateUpdate for user: {}, pos: {}, file: {:?}", 
+                                       user_state.user_id, user_state.playlist_position, user_state.current_file_name);
                                 session_state_clone.write().await.update_user(user_state.clone());
                             }
                             SyncEvent::UserLeft { user_id: uid } => {
+                                debug!("Processing UserLeft for: {}", uid);
                                 clients_clone.write().await.remove(uid);
                                 session_state_clone.write().await.remove_user(uid);
                             }
@@ -210,9 +214,16 @@ impl SyncServer {
             let summary = state.get_sync_summary();
             
             if !display_lines.is_empty() {
-                // Clear screen and show current state
-                print!("\x1B[2J\x1B[1;1H"); // Clear screen, move cursor to top
-                println!("🎬 SyncRead Server - {}", summary);
+                // Show debug info and current state (no screen clearing)
+                println!("\n🔍 DEBUG - Session State:");
+                println!("Users in HashMap: {:?}", 
+                       state.users.keys().collect::<Vec<_>>());
+                for (user_id, user_state) in &state.users {
+                    println!("  {} → pos={}, file={:?}", 
+                           user_id, user_state.playlist_position, user_state.current_file_name);
+                }
+                
+                println!("\n🎬 SyncRead Server - {}", summary);
                 println!("{}", "=".repeat(60));
                 
                 for line in display_lines {
@@ -220,7 +231,7 @@ impl SyncServer {
                 }
                 
                 println!("{}", "=".repeat(60));
-                println!("Press Ctrl+C to stop server");
+                println!("Press Ctrl+C to stop server\n");
             }
         }
     }

@@ -178,9 +178,14 @@ impl SyncClient {
         // Debug logging to help diagnose position issues
         if let Some(ref file) = current_file {
             if let Some(filename) = file.file_name().and_then(|n| n.to_str()) {
-                debug!("User {}: MPV pos={}, file={}, total_files={}", 
+                debug!("🔍 User {}: MPV reports pos={}, file={}, total_files={}", 
                       user_id, playlist_pos, filename, playlist_files.len());
+                debug!("   📤 Sending to server: pos={}, file={}", 
+                       playlist_pos, filename);
             }
+        } else {
+            debug!("🔍 User {}: MPV reports pos={}, file=None, total_files={}", 
+                  user_id, playlist_pos, playlist_files.len());
         }
         
         let mut state = UserState::new(user_id.to_string());

@@ -111,8 +111,10 @@ async fn start_client(server_addr: SocketAddr, user_id: String, files: Vec<PathB
     let keybind_profile = KeybindProfile::default();
     let keybind_path = keybind_profile.create_temp_config()?;
     
-    // Launch MPV
-    let socket_path = PathBuf::from("/tmp/syncread_client.socket");
+    // Launch MPV with unique socket for each user
+    let socket_path = PathBuf::from(format!("/tmp/syncread_{}.socket", user_id));
+    debug!("🔌 User '{}' will use MPV socket: {:?}", user_id, socket_path);
+    
     let mpv_controller = MpvController::launch(
         &socket_path,
         Some(&keybind_path),
