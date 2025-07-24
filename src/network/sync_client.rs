@@ -15,6 +15,7 @@ pub struct SyncClient {
     user_id: UserId,
     sequence_counter: u64,
     session_state: Arc<RwLock<SessionState>>,
+    last_known_position: Arc<RwLock<Option<i32>>>,
 }
 
 impl SyncClient {
@@ -24,6 +25,7 @@ impl SyncClient {
             user_id,
             sequence_counter: 0,
             session_state: Arc::new(RwLock::new(SessionState::new())),
+            last_known_position: Arc::new(RwLock::new(None)),
         }
     }
     
@@ -58,8 +60,9 @@ impl SyncClient {
         
         self.send_message(&mut writer, join_message).await?;
         
-        // Add our own state to the session
-        self.session_state.write().await.update_user(initial_state);
+        // Add our own state to the session and set initial position
+        self.session_state.write().await.update_user(initial_state.clone());
+        *self.last_known_position.write().await = Some(initial_state.playlist_position);
         
         // Start the display loop
         let session_state_for_display = self.session_state.clone();
@@ -72,6 +75,7 @@ impl SyncClient {
         let outgoing_tx_clone = outgoing_tx.clone();
         let user_id_clone = self.user_id.clone();
         let session_state_for_updates = self.session_state.clone();
+        let last_known_position_clone = self.last_known_position.clone();
         let mut sequence_counter = self.sequence_counter;
         
         tokio::spawn(async move {
@@ -82,15 +86,26 @@ impl SyncClient {
                 
                 match Self::get_current_state_with_user_id(&mut mpv_controller, &playlist_files, &user_id_clone).await {
                     Ok(state) => {
-                        // Update our local session state
-                        session_state_for_updates.write().await.update_user(state.clone());
+                        // Validate position change to prevent MPV transition glitches
+                        let should_send_update = Self::validate_position_change(
+                            &last_known_position_clone, 
+                            state.playlist_position,
+                            playlist_files.len()
+                        ).await;
                         
-                        sequence_counter += 1;
-                        let update_message = SyncMessage::state_update(state, sequence_counter);
-                        
-                        if let Err(e) = outgoing_tx_clone.send(update_message) {
-                            error!("Failed to send state update: {}", e);
-                            break;
+                        if should_send_update {
+                            // Update our local session state
+                            session_state_for_updates.write().await.update_user(state.clone());
+                            
+                            sequence_counter += 1;
+                            let update_message = SyncMessage::state_update(state, sequence_counter);
+                            
+                            if let Err(e) = outgoing_tx_clone.send(update_message) {
+                                error!("Failed to send state update: {}", e);
+                                break;
+                            }
+                        } else {
+                            debug!("Skipped potentially invalid position update: {}", state.playlist_position);
                         }
                     }
                     Err(e) => {
@@ -390,5 +405,60 @@ impl SyncClient {
         }
         
         messages.join("\n")
+    }
+    
+    /// Validate position change to prevent MPV transition glitches
+    async fn validate_position_change(
+        last_known_position: &Arc<RwLock<Option<i32>>>, 
+        new_position: i32,
+        playlist_length: usize
+    ) -> bool {
+        let mut last_pos = last_known_position.write().await;
+        
+        // If we don't have a last known position, accept any reasonable position
+        let Some(last) = *last_pos else {
+            if new_position >= 0 && new_position < playlist_length as i32 {
+                *last_pos = Some(new_position);
+                return true;
+            }
+            return false;
+        };
+        
+        // Allow reasonable position changes
+        let position_diff = (new_position - last).abs();
+        
+        // Always allow small jumps (±3 positions)
+        if position_diff <= 3 {
+            *last_pos = Some(new_position);
+            return true;
+        }
+        
+        // Reject obvious glitches: jumping from middle/end back to start
+        if last > 5 && new_position <= 1 {
+            debug!("Rejected glitch: position {} -> {} (likely MPV transition)", last, new_position);
+            return false;
+        }
+        
+        // Reject jumping to invalid positions
+        if new_position < 0 || new_position >= playlist_length as i32 {
+            debug!("Rejected invalid position: {} (playlist length: {})", new_position, playlist_length);
+            return false;
+        }
+        
+        // Allow larger jumps if they seem intentional (forward progress)
+        if new_position > last {
+            *last_pos = Some(new_position);
+            return true;
+        }
+        
+        // For backward jumps > 3, be more cautious
+        if position_diff > 10 {
+            debug!("Rejected large backward jump: {} -> {}", last, new_position);
+            return false;
+        }
+        
+        // Accept moderate backward jumps (user might have gone back a few pages)
+        *last_pos = Some(new_position);
+        true
     }
 }
