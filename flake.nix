@@ -78,9 +78,18 @@
           pname = "syncread";
           version = "0.1.0";
           src = ./.;
-          cargoLock.lockFile = ./Cargo.lock;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+          };
           
-          inherit buildInputs nativeBuildInputs;
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
+          
+          buildInputs = with pkgs; [
+            mpv
+            openssl
+          ];
         };
       });
 }
