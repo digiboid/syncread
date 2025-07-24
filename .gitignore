@@ -1,0 +1,28 @@
+# Rust
+/target
+Cargo.lock
+*.pdb
+
+# Nix
+result
+result-*
+.direnv/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Project specific
+draft.md
+/tmp/
+*.socket
