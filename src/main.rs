@@ -110,7 +110,7 @@ async fn start_client(server_addr: SocketAddr, user_id: String, minimal: bool, f
     let keybind_path = keybind_profile.create_temp_config()?;
     
     // Launch MPV with unique socket for each user
-    let socket_path = PathBuf::from(format!("/tmp/syncread_{}.socket", user_id));
+    let socket_path = std::env::temp_dir().join(format!("syncread_{}.socket", user_id));
     
     let mpv_controller = MpvController::launch(
         &socket_path,
@@ -148,8 +148,8 @@ async fn test_mpv_controller(files: Vec<PathBuf>) -> Result<()> {
     let keybind_profile = KeybindProfile::default();
     let keybind_path = keybind_profile.create_temp_config()?;
 
-    // Socket path in /tmp
-    let socket_path = PathBuf::from("/tmp/syncread_mpv.socket");
+    // Socket path in temp directory
+    let socket_path = std::env::temp_dir().join("syncread_mpv.socket");
 
     
     info!("Keybind config at: {:?}", keybind_path);

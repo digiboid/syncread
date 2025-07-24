@@ -1,10 +1,18 @@
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use tokio::net::UnixStream;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use serde::{Deserialize, Serialize};
 use anyhow::{Result, Context};
 use tracing::{debug, error, info, warn};
+
+#[cfg(unix)]
+use tokio::net::UnixStream;
+#[cfg(unix)]
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
+#[cfg(windows)]
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MpvCommand {
@@ -23,10 +31,15 @@ pub struct MpvResponse {
     pub request_id: Option<u32>,
 }
 
+#[cfg(unix)]
+type IpcStream = UnixStream;
+#[cfg(windows)]
+type IpcStream = NamedPipeClient;
+
 pub struct MpvController {
     process: Child,
     socket_path: PathBuf,
-    connection: Option<UnixStream>,
+    connection: Option<IpcStream>,
     next_request_id: u32,
 }
 
@@ -43,8 +56,19 @@ impl MpvController {
         let mut cmd = Command::new("mpv");
         
         // Essential IPC setup
-        cmd.arg(format!("--input-ipc-server={}", socket_path.display()))
-           .arg("--idle=yes")
+        #[cfg(unix)]
+        cmd.arg(format!("--input-ipc-server={}", socket_path.display()));
+        
+        #[cfg(windows)]
+        {
+            let pipe_name = format!("\\\\.\\pipe\\{}", 
+                socket_path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("syncread_mpv"));
+            cmd.arg(format!("--input-ipc-server={}", pipe_name));
+        }
+        
+        cmd.arg("--idle=yes")
            .arg("--force-window=yes")
            .arg("--pause=yes"); // Start paused
         
@@ -84,31 +108,44 @@ impl MpvController {
     async fn wait_for_socket(&mut self) -> Result<()> {
         use tokio::time::{sleep, Duration};
         
-        info!("Waiting for MPV socket at: {:?}", self.socket_path);
+        info!("Waiting for MPV IPC at: {:?}", self.socket_path);
         
         for attempt in 1..=50 { // 5 second timeout
-            if self.socket_path.exists() {
-                debug!("MPV socket ready after {} attempts", attempt);
+            #[cfg(unix)]
+            let ready = self.socket_path.exists();
+            
+            #[cfg(windows)]
+            let ready = {
+                // On Windows, try to connect to see if pipe is ready
+                let pipe_name = format!("\\\\.\\pipe\\{}", 
+                    self.socket_path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("syncread_mpv"));
+                ClientOptions::new().open(&pipe_name).await.is_ok()
+            };
+            
+            if ready {
+                debug!("MPV IPC ready after {} attempts", attempt);
                 return Ok(());
             }
             
             if attempt % 10 == 0 {
-                info!("Still waiting for socket... attempt {}/50", attempt);
+                info!("Still waiting for IPC... attempt {}/50", attempt);
             }
             
             sleep(Duration::from_millis(100)).await;
         }
         
-        error!("Socket file does not exist after timeout: {:?}", self.socket_path);
+        error!("MPV IPC not ready after timeout: {:?}", self.socket_path);
         
         // Check if MPV process is still running
         match self.process.try_wait() {
             Ok(Some(status)) => error!("MPV process exited with status: {:?}", status),
-            Ok(None) => error!("MPV process is still running but no socket created"),
+            Ok(None) => error!("MPV process is still running but no IPC available"),
             Err(e) => error!("Failed to check MPV process status: {}", e),
         }
         
-        anyhow::bail!("MPV socket not created within timeout");
+        anyhow::bail!("MPV IPC not available within timeout");
     }
     
     /// Connect to MPV IPC socket
@@ -117,11 +154,26 @@ impl MpvController {
             return Ok(()); // Already connected
         }
         
-        let stream = UnixStream::connect(&self.socket_path).await
-            .context("Failed to connect to MPV socket")?;
+        #[cfg(unix)]
+        {
+            let stream = UnixStream::connect(&self.socket_path).await
+                .context("Failed to connect to MPV socket")?;
+            self.connection = Some(stream);
+        }
         
-        self.connection = Some(stream);
-        info!("Connected to MPV IPC socket");
+        #[cfg(windows)]
+        {
+            let pipe_name = format!("\\\\.\\pipe\\{}", 
+                self.socket_path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("syncread_mpv"));
+            let stream = ClientOptions::new()
+                .open(&pipe_name).await
+                .context("Failed to connect to MPV named pipe")?;
+            self.connection = Some(stream);
+        }
+        
+        info!("Connected to MPV IPC");
         
         Ok(())
     }
