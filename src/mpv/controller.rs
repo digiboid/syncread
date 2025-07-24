@@ -121,7 +121,8 @@ impl MpvController {
                     self.socket_path.file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("syncread_mpv"));
-                ClientOptions::new().open(&pipe_name).await.is_ok()
+                // Note: ClientOptions::new().open() is not async, remove .await
+                ClientOptions::new().open(&pipe_name).is_ok()
             };
             
             if ready {
@@ -168,7 +169,7 @@ impl MpvController {
                     .and_then(|s| s.to_str())
                     .unwrap_or("syncread_mpv"));
             let stream = ClientOptions::new()
-                .open(&pipe_name).await
+                .open(&pipe_name)
                 .context("Failed to connect to MPV named pipe")?;
             self.connection = Some(stream);
         }

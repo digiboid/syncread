@@ -236,7 +236,7 @@ impl SyncClient {
     /// Handle incoming message from server
     async fn handle_incoming_message(&self, message: SyncMessage) {
         match message.event {
-            SyncEvent::UserJoined { user_id, user_state } => {
+            SyncEvent::UserJoined { user_id: _, user_state } => {
                 self.session_state.write().await.update_user(user_state);
             }
             

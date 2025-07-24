@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use tracing::{debug, info, Level};
+use tracing::{info, Level};
 use tracing_subscriber;
 
 use mpv::{KeybindProfile, MpvController};
