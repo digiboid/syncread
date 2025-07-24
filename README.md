@@ -32,8 +32,7 @@ syncread client --server ip:8080 --mpv-path /opt/mpv/bin/mpv --user-id username 
 # Features
 
 ## Known Issues
-- When switching pages quickly, syncread may temporarily report being on the first page
-- Flickering on windows terminal
+- Flickering on Windows terminal
 
 
 ## Building from Source
