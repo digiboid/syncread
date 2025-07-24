@@ -35,14 +35,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y pkg-config libssl-dev libmpv-dev
     
-    - name: Install MPV (Windows)
+    - name: Setup Windows build environment
       if: matrix.os == 'windows-latest'
       run: |
-        # Download MPV dev libraries for Windows
-        curl -L https://sourceforge.net/projects/mpv-player-windows/files/libmpv/mpv-dev-x86_64-20240303-git-2768db8.7z/download -o mpv-dev.7z
-        7z x mpv-dev.7z
-        echo "MPV_LIB_DIR=${{ github.workspace }}/mpv-dev" >> $GITHUB_ENV
-        echo "PKG_CONFIG_PATH=${{ github.workspace }}/mpv-dev/pkgconfig" >> $GITHUB_ENV
+        # For now, we'll build without MPV on Windows for testing
+        echo "Building without MPV dependencies on Windows"
     
     - name: Build
       run: cargo build --release --target ${{ matrix.target }}
