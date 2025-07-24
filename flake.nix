@@ -28,16 +28,19 @@
           pkg-config
           openssl
 
-          # Networking libraries (for potential WebRTC/P2P needs)
-          libwebrtc
+          # System libraries that Rust networking crates might need
+          libuv          # for some async I/O crates
+          sqlite         # for potential local state storage
           
           # Development tools
           git
-          just  # task runner alternative to make
+          just           # task runner alternative to make
+          socat          # for testing MPV IPC
           
           # Optional: for debugging network issues
           wireshark
           netcat-gnu
+          tcpdump
         ];
 
         nativeBuildInputs = with pkgs; [
