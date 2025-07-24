@@ -73,14 +73,13 @@
           '';
         };
 
-        # Optional: define packages for building releases
+        # Package for building releases
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "syncread";
           version = "0.1.0";
           src = ./.;
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-          };
+          
+          cargoLock.lockFile = ./Cargo.lock;
           
           nativeBuildInputs = with pkgs; [
             pkg-config
