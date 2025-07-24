@@ -57,9 +57,9 @@ impl MpvController {
             cmd.arg(file.as_ref());
         }
         
-        // Show stdout/stderr for debugging
-        cmd.stdout(Stdio::inherit())
-           .stderr(Stdio::inherit());
+        // Suppress MPV output to keep client display clean
+        cmd.stdout(Stdio::null())
+           .stderr(Stdio::null());
         
         info!("Launching MPV with socket: {:?}", socket_path);
         

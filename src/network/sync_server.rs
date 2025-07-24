@@ -169,7 +169,8 @@ impl SyncServer {
                     match msg {
                         Some(message) => {
                             let json = serde_json::to_string(&message)?;
-                            if let Err(e) = writer.write_all(format!("{}\n", json).as_bytes()).await {
+                            if let Err(e) = writer.write_all(format!("{}
+", json).as_bytes()).await {
                                 error!("Failed to write to client {}: {}", client_addr, e);
                                 break;
                             }
@@ -183,7 +184,8 @@ impl SyncServer {
                     match msg {
                         Ok(message) => {
                             let json = serde_json::to_string(&message)?;
-                            if let Err(e) = writer.write_all(format!("{}\n", json).as_bytes()).await {
+                            if let Err(e) = writer.write_all(format!("{}
+", json).as_bytes()).await {
                                 error!("Failed to write broadcast to client {}: {}", client_addr, e);
                                 break;
                             }
@@ -200,39 +202,42 @@ impl SyncServer {
         Ok(())
     }
     
-    /// Display loop showing current session state
+    /// Display loop showing current session state, now with auto-refresh.
     async fn display_loop(session_state: Arc<RwLock<SessionState>>) {
         use tokio::time::{interval, Duration};
-        
-        let mut interval = interval(Duration::from_secs(2));
-        
+
+        let mut interval = interval(Duration::from_millis(500)); // Faster refresh
+
         loop {
             interval.tick().await;
-            
+
             let state = session_state.read().await;
             let display_lines = state.format_for_display();
             let summary = state.get_sync_summary();
-            
-            if !display_lines.is_empty() {
-                // Show debug info and current state (no screen clearing)
-                println!("\n🔍 DEBUG - Session State:");
-                println!("Users in HashMap: {:?}", 
-                       state.users.keys().collect::<Vec<_>>());
-                for (user_id, user_state) in &state.users {
-                    println!("  {} → pos={}, file={:?}", 
-                           user_id, user_state.playlist_position, user_state.current_file_name);
-                }
-                
-                println!("\n🎬 SyncRead Server - {}", summary);
+
+            // ANSI escape code to clear screen and move cursor to top-left
+            print!("[2J[1;1H");
+
+            if !state.users.is_empty() {
+                println!("🎬 SyncRead Server - {}", summary);
                 println!("{}", "=".repeat(60));
-                
+
                 for line in display_lines {
                     println!("{}", line);
                 }
-                
+
                 println!("{}", "=".repeat(60));
-                println!("Press Ctrl+C to stop server\n");
+            } else {
+                println!("🎬 SyncRead Server");
+                println!("{}", "=".repeat(60));
+                println!("Waiting for clients to connect...");
+                println!(
+                    "Run client with: syncread client --server <IP>:8080 --user-id <name> <files...>"
+                );
             }
+
+            println!("
+Press Ctrl+C to stop the server");
         }
     }
 }

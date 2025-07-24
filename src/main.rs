@@ -17,6 +17,9 @@ use network::{SyncClient, SyncServer};
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+    /// Enable debug logging
+    #[arg(long, global = true, default_value_t = false)]
+    debug: bool,
 }
 
 #[derive(Subcommand)]
@@ -35,6 +38,9 @@ enum Commands {
         /// User ID for this client
         #[arg(short, long)]
         user_id: String,
+        /// Show only relative position info (minimal display)
+        #[arg(long, default_value_t = false)]
+        minimal: bool,
         /// Media files or directory to load
         #[arg(required = true)]
         files: Vec<PathBuf>,
@@ -49,8 +55,16 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
+    let cli = Cli::parse();
+
+    let log_level = if cli.debug {
+        Level::DEBUG
+    } else {
+        Level::INFO
+    };
+
     tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG) // Enable debug for troubleshooting
+        .with_max_level(log_level)
         .init();
 
     let cli = Cli::parse();
@@ -60,9 +74,9 @@ async fn main() -> Result<()> {
             info!("🚀 Starting SyncRead server mode");
             start_server(bind).await
         }
-        Commands::Client { server, user_id, files } => {
+        Commands::Client { server, user_id, minimal, files } => {
             info!("🔗 Starting SyncRead client mode");
-            start_client(server, user_id, files).await
+            start_client(server, user_id, minimal, files).await
         }
         Commands::Test { files } => {
             info!("🧪 Testing MPV controller");
@@ -80,7 +94,7 @@ async fn start_server(bind_addr: SocketAddr) -> Result<()> {
     Ok(())
 }
 
-async fn start_client(server_addr: SocketAddr, user_id: String, files: Vec<PathBuf>) -> Result<()> {
+async fn start_client(server_addr: SocketAddr, user_id: String, minimal: bool, files: Vec<PathBuf>) -> Result<()> {
     info!("Connecting to server {} as user '{}'", server_addr, user_id);
     
     // Expand directories and validate files
@@ -91,29 +105,12 @@ async fn start_client(server_addr: SocketAddr, user_id: String, files: Vec<PathB
     
     info!("Loaded {} media files", media_files.len());
     
-    // Debug: show first few files for troubleshooting
-    debug!("First few files loaded:");
-    for (i, file) in media_files.iter().take(5).enumerate() {
-        if let Some(filename) = file.file_name().and_then(|n| n.to_str()) {
-            debug!("  [{}]: {}", i, filename);
-        }
-    }
-    if media_files.len() > 10 {
-        debug!("...and last few files:");
-        for (i, file) in media_files.iter().enumerate().skip(media_files.len().saturating_sub(3)) {
-            if let Some(filename) = file.file_name().and_then(|n| n.to_str()) {
-                debug!("  [{}]: {}", i, filename);
-            }
-        }
-    }
-    
     // Create keybind profile
     let keybind_profile = KeybindProfile::default();
     let keybind_path = keybind_profile.create_temp_config()?;
     
     // Launch MPV with unique socket for each user
     let socket_path = PathBuf::from(format!("/tmp/syncread_{}.socket", user_id));
-    debug!("🔌 User '{}' will use MPV socket: {:?}", user_id, socket_path);
     
     let mpv_controller = MpvController::launch(
         &socket_path,
@@ -125,7 +122,7 @@ async fn start_client(server_addr: SocketAddr, user_id: String, files: Vec<PathB
     
     // Connect to sync server
     let mut sync_client = SyncClient::new(user_id);
-    sync_client.connect_and_sync(server_addr, mpv_controller, media_files).await?;
+    sync_client.connect_and_sync(server_addr, mpv_controller, media_files, minimal).await?;
     
     Ok(())
 }
@@ -154,7 +151,7 @@ async fn test_mpv_controller(files: Vec<PathBuf>) -> Result<()> {
     // Socket path in /tmp
     let socket_path = PathBuf::from("/tmp/syncread_mpv.socket");
 
-    info!("Launching MPV with socket: {:?}", socket_path);
+    
     info!("Keybind config at: {:?}", keybind_path);
     info!("Keybind config exists: {}", keybind_path.exists());
 
