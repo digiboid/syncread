@@ -3,7 +3,7 @@
 Assistant for synchronized manga reading using mpv. Displays your current position relative to other users.
 
 ## Prerequisites
-- **MPV** must be installed and available in PATH
+- mpv
 
 ## Installation
 Download the latest binary from [Releases](https://github.com/digiboid/syncread/releases) or build from source.
