@@ -16,6 +16,7 @@ pub struct SyncClient {
     sequence_counter: u64,
     session_state: Arc<RwLock<SessionState>>,
     last_known_position: Arc<RwLock<Option<i32>>>,
+    pending_position: Arc<RwLock<Option<(i32, u8)>>>, // (position, retry_count)
 }
 
 impl SyncClient {
@@ -26,6 +27,7 @@ impl SyncClient {
             sequence_counter: 0,
             session_state: Arc::new(RwLock::new(SessionState::new())),
             last_known_position: Arc::new(RwLock::new(None)),
+            pending_position: Arc::new(RwLock::new(None)),
         }
     }
     
@@ -76,6 +78,7 @@ impl SyncClient {
         let user_id_clone = self.user_id.clone();
         let session_state_for_updates = self.session_state.clone();
         let last_known_position_clone = self.last_known_position.clone();
+        let pending_position_clone = self.pending_position.clone();
         let mut sequence_counter = self.sequence_counter;
         
         tokio::spawn(async move {
@@ -88,7 +91,8 @@ impl SyncClient {
                     Ok(state) => {
                         // Validate position change to prevent MPV transition glitches
                         let should_send_update = Self::validate_position_change(
-                            &last_known_position_clone, 
+                            &last_known_position_clone,
+                            &pending_position_clone,
                             state.playlist_position,
                             playlist_files.len()
                         ).await;
@@ -407,58 +411,85 @@ impl SyncClient {
         messages.join("\n")
     }
     
-    /// Validate position change to prevent MPV transition glitches
+    /// Validate position change to prevent MPV transition glitches with retry mechanism
     async fn validate_position_change(
-        last_known_position: &Arc<RwLock<Option<i32>>>, 
+        last_known_position: &Arc<RwLock<Option<i32>>>,
+        pending_position: &Arc<RwLock<Option<(i32, u8)>>>,
         new_position: i32,
         playlist_length: usize
     ) -> bool {
         let mut last_pos = last_known_position.write().await;
+        let mut pending = pending_position.write().await;
         
         // If we don't have a last known position, accept any reasonable position
         let Some(last) = *last_pos else {
             if new_position >= 0 && new_position < playlist_length as i32 {
                 *last_pos = Some(new_position);
+                *pending = None; // Clear any pending position
                 return true;
             }
             return false;
         };
         
-        // Allow reasonable position changes
+        // Reject jumping to invalid positions
+        if new_position < 0 || new_position >= playlist_length as i32 {
+            debug!("Rejected invalid position: {} (playlist length: {})", new_position, playlist_length);
+            *pending = None; // Clear pending for invalid positions
+            return false;
+        }
+        
         let position_diff = (new_position - last).abs();
         
         // Always allow small jumps (±3 positions)
         if position_diff <= 3 {
             *last_pos = Some(new_position);
+            *pending = None; // Clear any pending position
             return true;
-        }
-        
-        // Reject obvious glitches: jumping from middle/end back to start
-        if last > 5 && new_position <= 1 {
-            debug!("Rejected glitch: position {} -> {} (likely MPV transition)", last, new_position);
-            return false;
-        }
-        
-        // Reject jumping to invalid positions
-        if new_position < 0 || new_position >= playlist_length as i32 {
-            debug!("Rejected invalid position: {} (playlist length: {})", new_position, playlist_length);
-            return false;
         }
         
         // Allow larger jumps if they seem intentional (forward progress)
         if new_position > last {
             *last_pos = Some(new_position);
+            *pending = None; // Clear any pending position
             return true;
         }
         
-        // For backward jumps > 3, be more cautious
+        // Handle large backward jumps with retry mechanism
         if position_diff > 10 {
-            debug!("Rejected large backward jump: {} -> {}", last, new_position);
-            return false;
+            // Check if this is a glitch (jumping from middle/end back to start)
+            if last > 5 && new_position <= 1 {
+                debug!("Rejected obvious glitch: position {} -> {} (likely MPV transition)", last, new_position);
+                *pending = None; // Clear pending for obvious glitches
+                return false;
+            }
+            
+            // Handle legitimate large backward jumps with retry
+            match pending.as_mut() {
+                Some((pending_pos, count)) if *pending_pos == new_position => {
+                    // Same position persists, increment retry count
+                    *count += 1;
+                    debug!("Large backward jump {} -> {} persists (attempt {})", last, new_position, *count);
+                    
+                    // Accept after 2 consistent readings (2 seconds total)
+                    if *count >= 2 {
+                        *last_pos = Some(new_position);
+                        *pending = None;
+                        info!("Accepted legitimate large backward jump: {} -> {}", last, new_position);
+                        return true;
+                    }
+                }
+                _ => {
+                    // New large backward jump, start tracking it
+                    *pending = Some((new_position, 1));
+                    debug!("Tracking potential large backward jump: {} -> {} (attempt 1)", last, new_position);
+                }
+            }
+            return false; // Don't send update yet, wait for confirmation
         }
         
         // Accept moderate backward jumps (user might have gone back a few pages)
         *last_pos = Some(new_position);
+        *pending = None; // Clear any pending position
         true
     }
 }
