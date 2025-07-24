@@ -42,9 +42,12 @@
           ];
 
           buildInputs = with pkgs; [
-            mpv
             openssl
           ];
+          
+          # MPV is a runtime dependency - we spawn it as external process
+          # Keep it in dev shell for development/testing
+          # Users need to install MPV separately
         };
 
         packages.default = packages.syncread;
