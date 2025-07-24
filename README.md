@@ -5,9 +5,6 @@ Assistant for synchronized manga reading using mpv. Displays your current positi
 ## Prerequisites
 - mpv
 
-## Installation
-Download the latest binary from [Releases](https://github.com/digiboid/syncread/releases) or build from source.
-
 ## Usage
 ### Server
 ```bash
@@ -28,8 +25,6 @@ syncread client --server ip:8080 --mpv-path "C:\Program Files\MPV\mpv.exe" --use
 # Linux example  
 syncread client --server ip:8080 --mpv-path /opt/mpv/bin/mpv --user-id username path/to/folder
 ```
-
-# Features
 
 ## Known Issues
 - Flickering on Windows terminal
