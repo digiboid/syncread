@@ -16,13 +16,15 @@ impl KeybindProfile {
         keybinds.push(("SPACE".to_string(), "cycle pause".to_string()));
         keybinds.push(("p".to_string(), "cycle pause".to_string()));
         
-        // Seeking
-        keybinds.push(("LEFT".to_string(), "seek -5".to_string()));
-        keybinds.push(("RIGHT".to_string(), "seek 5".to_string()));
+        // Navigation - LEFT/RIGHT for prev/next file
+        keybinds.push(("LEFT".to_string(), "playlist-prev".to_string()));
+        keybinds.push(("RIGHT".to_string(), "playlist-next".to_string()));
+        
+        // Seeking with other keys
         keybinds.push(("DOWN".to_string(), "seek -30".to_string()));
         keybinds.push(("UP".to_string(), "seek 30".to_string()));
-        keybinds.push(("Shift+LEFT".to_string(), "seek -1 exact".to_string()));
-        keybinds.push(("Shift+RIGHT".to_string(), "seek 1 exact".to_string()));
+        keybinds.push(("Shift+LEFT".to_string(), "seek -5".to_string()));
+        keybinds.push(("Shift+RIGHT".to_string(), "seek 5".to_string()));
         
         // Playlist navigation
         keybinds.push(("n".to_string(), "playlist-next".to_string()));
