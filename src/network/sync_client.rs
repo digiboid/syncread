@@ -75,7 +75,7 @@ impl SyncClient {
         let mut sequence_counter = self.sequence_counter;
         
         tokio::spawn(async move {
-            let mut interval = interval(Duration::from_millis(2500)); // Even slower updates to give MPV more time
+            let mut interval = interval(Duration::from_millis(1000)); // Update every second
             
             loop {
                 interval.tick().await;
