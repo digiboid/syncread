@@ -25,6 +25,9 @@ syncread client --server ip:8080 --minimal --user-id username path/to/folder
 - When switching pages quickly, syncread may temporarily report being on the first page
 - Flickering on windows terminal
 
+# Known feature requests
+- allow to point to mpv binary manually
+
 ## Building from Source
 ```bash
 git clone https://github.com/digiboid/syncread.git

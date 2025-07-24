@@ -41,12 +41,18 @@ enum Commands {
         /// Show only relative position info (minimal display)
         #[arg(long, default_value_t = false)]
         minimal: bool,
+        /// Path to MPV binary (if not in PATH)
+        #[arg(long)]
+        mpv_path: Option<PathBuf>,
         /// Media files or directory to load
         #[arg(required = true)]
         files: Vec<PathBuf>,
     },
     /// Test MPV controller only (no networking)
     Test {
+        /// Path to MPV binary (if not in PATH)
+        #[arg(long)]
+        mpv_path: Option<PathBuf>,
         /// Media files to test with
         files: Vec<PathBuf>,
     },
@@ -74,13 +80,13 @@ async fn main() -> Result<()> {
             info!("🚀 Starting SyncRead server mode");
             start_server(bind).await
         }
-        Commands::Client { server, user_id, minimal, files } => {
+        Commands::Client { server, user_id, minimal, mpv_path, files } => {
             info!("🔗 Starting SyncRead client mode");
-            start_client(server, user_id, minimal, files).await
+            start_client(server, user_id, minimal, mpv_path, files).await
         }
-        Commands::Test { files } => {
+        Commands::Test { mpv_path, files } => {
             info!("🧪 Testing MPV controller");
-            test_mpv_controller(files).await
+            test_mpv_controller(mpv_path, files).await
         }
     }
 }
@@ -94,7 +100,7 @@ async fn start_server(bind_addr: SocketAddr) -> Result<()> {
     Ok(())
 }
 
-async fn start_client(server_addr: SocketAddr, user_id: String, minimal: bool, files: Vec<PathBuf>) -> Result<()> {
+async fn start_client(server_addr: SocketAddr, user_id: String, minimal: bool, mpv_path: Option<PathBuf>, files: Vec<PathBuf>) -> Result<()> {
     info!("Connecting to server {} as user '{}'", server_addr, user_id);
     
     // Expand directories and validate files
@@ -116,6 +122,7 @@ async fn start_client(server_addr: SocketAddr, user_id: String, minimal: bool, f
         &socket_path,
         Some(&keybind_path),
         media_files.iter().collect(),
+        mpv_path.as_deref(),
     ).await?;
     
     info!("MPV launched successfully!");
@@ -127,7 +134,7 @@ async fn start_client(server_addr: SocketAddr, user_id: String, minimal: bool, f
     Ok(())
 }
 
-async fn test_mpv_controller(files: Vec<PathBuf>) -> Result<()> {
+async fn test_mpv_controller(mpv_path: Option<PathBuf>, files: Vec<PathBuf>) -> Result<()> {
     info!("Testing MPV controller...");
 
     // Expand directories and validate files
@@ -160,6 +167,7 @@ async fn test_mpv_controller(files: Vec<PathBuf>) -> Result<()> {
         &socket_path,
         Some(&keybind_path),
         media_files.iter().collect(),
+        mpv_path.as_deref(),
     ).await?;
 
     info!("MPV launched successfully!");

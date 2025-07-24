@@ -48,12 +48,16 @@ impl MpvController {
     pub async fn launch<P: AsRef<Path>>(
         socket_path: P,
         keybind_config: Option<P>,
-        media_files: Vec<P>
+        media_files: Vec<P>,
+        mpv_binary_path: Option<&Path>,
     ) -> Result<Self> {
         let socket_path = socket_path.as_ref().to_path_buf();
         
-        // Build MPV command
-        let mut cmd = Command::new("mpv");
+        // Build MPV command with custom binary path if provided
+        let mpv_binary = mpv_binary_path
+            .map(|p| p.as_os_str())
+            .unwrap_or_else(|| std::ffi::OsStr::new("mpv"));
+        let mut cmd = Command::new(mpv_binary);
         
         // Essential IPC setup
         #[cfg(unix)]
@@ -86,7 +90,11 @@ impl MpvController {
         cmd.stdout(Stdio::null())
            .stderr(Stdio::null());
         
-        info!("Launching MPV with socket: {:?}", socket_path);
+        if let Some(custom_path) = mpv_binary_path {
+            info!("Launching MPV from {:?} with socket: {:?}", custom_path, socket_path);
+        } else {
+            info!("Launching MPV with socket: {:?}", socket_path);
+        }
         
         let process = cmd.spawn()
             .context("Failed to spawn MPV process")?;
