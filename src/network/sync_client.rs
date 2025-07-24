@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, RwLock, broadcast};
 use tokio::time::{interval, Duration};
 use tracing::{debug, error, info, warn};
 use std::sync::Arc;
@@ -66,11 +66,14 @@ impl SyncClient {
         self.session_state.write().await.update_user(initial_state.clone());
         *self.last_known_position.write().await = Some(initial_state.playlist_position);
         
+        // Create broadcast channel for UI updates
+        let (ui_update_tx, ui_update_rx) = broadcast::channel(100);
+        
         // Start the display loop
         let session_state_for_display = self.session_state.clone();
         let user_id_for_display = self.user_id.clone();
         tokio::spawn(async move {
-            Self::display_loop(session_state_for_display, user_id_for_display, minimal).await;
+            Self::display_loop(session_state_for_display, user_id_for_display, minimal, ui_update_rx).await;
         });
         
         // Start periodic state updates
@@ -79,6 +82,7 @@ impl SyncClient {
         let session_state_for_updates = self.session_state.clone();
         let last_known_position_clone = self.last_known_position.clone();
         let pending_position_clone = self.pending_position.clone();
+        let ui_update_tx_clone = ui_update_tx.clone();
         let mut sequence_counter = self.sequence_counter;
         
         tokio::spawn(async move {
@@ -108,6 +112,9 @@ impl SyncClient {
                                 error!("Failed to send state update: {}", e);
                                 break;
                             }
+                            
+                            // Trigger UI update since our state changed
+                            let _ = ui_update_tx_clone.send(());
                         } else {
                             debug!("Skipped potentially invalid position update: {}", state.playlist_position);
                         }
@@ -134,7 +141,8 @@ impl SyncClient {
             let _ = Self::send_message_static(&mut writer, leave_message).await;
         });
         
-        // Handle incoming messages
+        // Handle incoming messages  
+        let ui_update_tx_for_incoming = ui_update_tx.clone();
         let mut line = String::new();
         while let Ok(bytes_read) = reader.read_line(&mut line).await {
             if bytes_read == 0 {
@@ -152,6 +160,8 @@ impl SyncClient {
                 Ok(message) => {
                     debug!("Received from server: {:?}", message);
                     self.handle_incoming_message(message).await;
+                    // Trigger UI update since someone else's state changed
+                    let _ = ui_update_tx_for_incoming.send(());
                 }
                 Err(e) => {
                     warn!("Failed to parse server message: {} - '{}'", e, trimmed);
@@ -300,52 +310,62 @@ impl SyncClient {
     }
     
     /// Display loop showing current session state for client
-    async fn display_loop(session_state: Arc<RwLock<SessionState>>, current_user_id: UserId, minimal: bool) {
-        use tokio::time::{interval, Duration};
+    async fn display_loop(
+        session_state: Arc<RwLock<SessionState>>, 
+        current_user_id: UserId, 
+        minimal: bool,
+        mut ui_update_rx: broadcast::Receiver<()>
+    ) {
+        // Initial display
+        Self::render_ui(&session_state, &current_user_id, minimal).await;
 
-        let mut interval = interval(Duration::from_millis(1000)); // Update every second
-
+        // Wait for UI update events
         loop {
-            interval.tick().await;
+            if let Ok(_) = ui_update_rx.recv().await {
+                Self::render_ui(&session_state, &current_user_id, minimal).await;
+            }
+        }
+    }
+    
+    /// Render the UI once
+    async fn render_ui(session_state: &Arc<RwLock<SessionState>>, current_user_id: &UserId, minimal: bool) {
+        let state = session_state.read().await;
+        let relative_info = Self::get_relative_position_info(&state, current_user_id);
 
-            let state = session_state.read().await;
-            let relative_info = Self::get_relative_position_info(&state, &current_user_id);
+        // ANSI escape code to clear screen and move cursor to top-left
+        print!("\x1b[2J\x1b[1;1H");
 
-            // ANSI escape code to clear screen and move cursor to top-left
-            print!("\x1b[2J\x1b[1;1H");
-
-            if !state.users.is_empty() {
-                if minimal {
-                    // Minimal mode: only show relative position info
-                    println!("🎬 SyncRead Client ({}) - Minimal Mode", current_user_id);
-                    println!("{}", "=".repeat(40));
-                    if !relative_info.is_empty() {
-                        println!("{}", relative_info);
-                    } else {
-                        println!("📍 You are the only user connected");
-                    }
-                    println!("{}", "=".repeat(40));
+        if !state.users.is_empty() {
+            if minimal {
+                // Minimal mode: only show relative position info
+                if !relative_info.is_empty() {
+                    println!("{}", relative_info);
                 } else {
-                    // Full mode: show all users and relative info
-                    let user_count = state.users.len();
-                    let display_lines = state.format_for_display();
-                    println!("🎬 SyncRead Client ({}) - {} users connected", current_user_id, user_count);
-                    println!("{}", "=".repeat(60));
+                    println!("📍 You are the only user connected");
+                }
+            } else {
+                // Full mode: show all users and relative info
+                let user_count = state.users.len();
+                let display_lines = state.format_for_display();
+                println!("🎬 SyncRead Client ({}) - {} users connected", current_user_id, user_count);
+                println!("{}", "=".repeat(60));
 
-                    for line in display_lines {
-                        let is_current_user = line.starts_with(&format!("{}:", current_user_id));
-                        if is_current_user {
-                            println!("👤 {}", line);
-                        } else {
-                            println!("   {}", line);
-                        }
-                    }
-
-                    println!("{}", "=".repeat(60));
-                    if !relative_info.is_empty() {
-                        println!("{}", relative_info);
+                for line in display_lines {
+                    let is_current_user = line.starts_with(&format!("{}:", current_user_id));
+                    if is_current_user {
+                        println!("👤 {}", line);
+                    } else {
+                        println!("   {}", line);
                     }
                 }
+
+                println!("{}", "=".repeat(60));
+                if !relative_info.is_empty() {
+                    println!("{}", relative_info);
+                }
+            }
+            
+            if !minimal {
                 println!("Press 'q' in MPV to quit, or Ctrl+C here");
             }
         }
